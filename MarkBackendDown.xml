@@ -1,0 +1,37 @@
+<policies>
+    <inbound>
+        <base />
+        <set-variable name="backend" value="appinsightsparenttest" />
+        <cache-lookup-value key="@( (String)context.Variables["backend"] )" default-value="up" variable-name="status" />
+        <choose>
+            <when condition="@( (String)context.Variables["status"] == "down" )">
+                <return-response>
+                    <set-status code="503" reason="Backend unavailable" />
+                    <set-body>Backend currently unavailable</set-body>
+                </return-response>
+            </when>
+            <otherwise>
+                <!-- do nothing -->
+            </otherwise>
+        </choose>
+        <set-backend-service backend-id="@( (String)context.Variables["backend"] )" />
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+        <choose>
+            <when condition="@( context.Response.StatusCode >= 500)">
+                <cache-store-value key="@( (String)context.Variables["backend"] )" value="down" duration="45" />
+            </when>
+            <otherwise>
+                <!-- do nothing -->
+            </otherwise>
+        </choose>
+    </outbound>
+    <on-error>
+        <base />
+        <cache-store-value key="@( (String)context.Variables["backend"] )" value="down" duration="45" />
+    </on-error>
+</policies>

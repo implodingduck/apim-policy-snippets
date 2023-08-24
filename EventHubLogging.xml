@@ -1,0 +1,101 @@
+<policies>
+    <inbound>
+        <base />
+        <log-to-eventhub logger-id="ehlogger" partition-id="0">@{
+            var body = context.Request.Body?.As<string>(true);
+            if (body != null && body.Length > 1024)
+            {
+                body = body.Substring(0, 1024);
+            }
+
+            var headers = context.Request.Headers
+                                .Where(h => h.Key != "Authorization" && h.Key != "Ocp-Apim-Subscription-Key")
+                                .Select(h => string.Format("{0}: {1}", h.Key, String.Join(", ", h.Value)))
+                                .ToArray<string>();
+            var requestIdHeader = context.Request.Headers.GetValueOrDefault("Request-Id", "");
+            return new JObject(
+                new JProperty("Type", "request"),
+                new JProperty("Headers", headers),
+                new JProperty("EventTime", DateTime.UtcNow.ToString()),
+                new JProperty("ServiceName", context.Deployment.ServiceName),
+                new JProperty("requestIdHeader", requestIdHeader),
+                new JProperty("RequestId", context.RequestId),
+                new JProperty("RequestIp", context.Request.IpAddress),
+                new JProperty("RequestMethod", context.Request.Method),
+                new JProperty("RequestPath", context.Request.Url.Path),
+                new JProperty("RequestQuery", context.Request.Url.QueryString),
+                new JProperty("RequestBody", body),
+                new JProperty("OperationName", context.Operation.Name),
+                new JProperty("OperationMethod", context.Operation.Method),
+                new JProperty("OperationUrl", context.Operation.UrlTemplate),
+                new JProperty("ApiName", context.Api.Name),
+                new JProperty("ApiPath", context.Api.Path)
+                
+            ).ToString();
+            
+        }</log-to-eventhub>
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+        <log-to-eventhub logger-id="ehlogger" partition-id="1">@{
+            var body = context.Response.Body?.As<string>(true);
+            if (body != null && body.Length > 1024)
+            {
+                body = body.Substring(0, 1024);
+            }
+
+            var headers = context.Response.Headers
+                                            .Select(h => string.Format("{0}: {1}", h.Key, String.Join(", ", h.Value)))
+                                            .ToArray<string>();
+
+            var requestIdHeader = context.Request.Headers.GetValueOrDefault("Request-Id", "");
+            var requestBody = context.Request.Body?.As<string>(true);
+            return new JObject(
+                new JProperty("Type", "response"),
+                new JProperty("Headers", headers),
+                new JProperty("EventTime", DateTime.UtcNow.ToString()),
+                new JProperty("ServiceName", context.Deployment.ServiceName),
+                new JProperty("requestIdHeader", requestIdHeader),
+                new JProperty("RequestId", context.RequestId),
+                new JProperty("RequestIp", context.Request.IpAddress),
+                new JProperty("RequestMethod", context.Request.Method),
+                new JProperty("ResponseStatusCode", context.Response.StatusCode),
+                new JProperty("ResponseStatusReason", context.Response.StatusReason),
+                new JProperty("ResponseBody", body),
+                new JProperty("OperationName", context.Operation.Name),
+                new JProperty("OperationMethod", context.Operation.Method),
+                new JProperty("OperationUrl", context.Operation.UrlTemplate),
+                new JProperty("ApiName", context.Api.Name),
+                new JProperty("ApiPath", context.Api.Path),
+                new JProperty("RequestBody", requestBody),
+                new JProperty("Duration", context.Elapsed)
+                
+            ).ToString();
+            
+        }</log-to-eventhub>
+    </outbound>
+    <on-error>
+        <base />
+        <log-to-eventhub logger-id="ehlogger" partition-id="1">@{
+            var requestIdHeader = context.Request.Headers.GetValueOrDefault("Request-Id", "");
+            return new JObject(
+                new JProperty("Type", "error"),
+                new JProperty("EventTime", DateTime.UtcNow.ToString()),
+                new JProperty("ServiceName", context.Deployment.ServiceName),
+                new JProperty("requestIdHeader", requestIdHeader),
+                new JProperty("RequestId", context.RequestId),
+                new JProperty("RequestIp", context.Request.IpAddress),
+                new JProperty("LastErrorMessage", context.LastError.Message),
+                new JProperty("OperationName", context.Operation.Name),
+                new JProperty("OperationMethod", context.Operation.Method),
+                new JProperty("OperationUrl", context.Operation.UrlTemplate),
+                new JProperty("ApiName", context.Api.Name),
+                new JProperty("ApiPath", context.Api.Path),
+                new JProperty("Duration", context.Elapsed)
+            ).ToString();
+        }</log-to-eventhub>
+    </on-error>
+</policies>
