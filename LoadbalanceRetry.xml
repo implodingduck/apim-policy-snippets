@@ -24,6 +24,7 @@
     </choose>
   </inbound>
   <backend>
+  <!-- retry works similar to a do...while loop where the condition is the while condition. This means if the response is >400 it will loop again  -->
     <retry condition="@(context.Response.StatusCode > 400)" count="1" interval="1" max-interval="10" delta="1" first-fast-retry="true">
       <choose>
         <when condition="@(context.Variables.GetValueOrDefault<int>("urlId") == 1 && context.Response.StatusCode > 400)">
