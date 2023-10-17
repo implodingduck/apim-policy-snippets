@@ -22,6 +22,7 @@
                 </return-response>
             </otherwise>
         </choose>
+        <set-variable name="requestBody" value="@(context.Request.Body.As<string>(preserveContent: true))" />
         <log-to-eventhub logger-id="ehlogger" partition-id="0">@{
             var body = context.Request.Body?.As<string>(true);
             if (body != null && body.Length > 1024)
@@ -59,17 +60,19 @@
         <set-variable name="counter" value="@{return 0;}" />
     </inbound>
     <backend>
-        <retry condition="@(context.Response.StatusCode > 400)" count="2" interval="1" max-interval="10" delta="1" first-fast-retry="false">
+        <retry condition="@(context.Response.StatusCode > 400)" count="1" interval="1" max-interval="45" delta="1" first-fast-retry="false">
             <choose>
                 <when condition="@(context.Variables.GetValueOrDefault<int>("urlId") <= 75 && context.Response.StatusCode > 400)">
                     <set-backend-service backend-id="openaitz4a0hvb-backend-ncus" />
                     <set-variable name="backend" value="openaitz4a0hvb-backend-ncus" />
                     <set-variable name="retrystatuscode" value="@(context.Response.StatusCode)" />
+                    <set-body>@((String)context.Variables["requestBody"])</set-body>
                 </when>
                 <when condition="@(context.Variables.GetValueOrDefault<int>("urlId") > 75 && context.Response.StatusCode > 400)">
                     <set-backend-service backend-id="openaitz4a0hvb-backend" />
                     <set-variable name="backend" value="openaitz4a0hvb-backend" />
                     <set-variable name="retrystatuscode" value="@(context.Response.StatusCode)" />
+                    <set-body>@((String)context.Variables["requestBody"])</set-body>
                 </when>
                 <otherwise>
                     <!-- do nothing -->
@@ -97,6 +100,7 @@
             }
             var requestIdHeader = context.Request.Headers.GetValueOrDefault("Request-Id", "");
             var requestBody = context.Request.Body?.As<string>(true);
+
             return new JObject(
                 new JProperty("Type", "response"),
                 new JProperty("Headers", headers),
@@ -108,7 +112,7 @@
                 new JProperty("RequestMethod", context.Request.Method),
                 new JProperty("ResponseStatusCode", context.Response.StatusCode),
                 new JProperty("ResponseStatusReason", context.Response.StatusReason),
-                new JProperty("ResponseBody", body),
+                new JProperty("responseBody", body),
                 new JProperty("OperationName", context.Operation.Name),
                 new JProperty("OperationMethod", context.Operation.Method),
                 new JProperty("OperationUrl", context.Operation.UrlTemplate),
@@ -128,6 +132,7 @@
         <base />
         <log-to-eventhub logger-id="ehlogger" partition-id="1">@{
             var requestIdHeader = context.Request.Headers.GetValueOrDefault("Request-Id", "");
+            var responseBody = context.Response.Body?.As<string>(true);
             return new JObject(
                 new JProperty("Type", "error"),
                 new JProperty("EventTime", DateTime.UtcNow.ToString()),
@@ -142,6 +147,9 @@
                 new JProperty("ApiName", context.Api.Name),
                 new JProperty("ApiPath", context.Api.Path),
                 new JProperty("Duration", context.Elapsed),
+                new JProperty("ResponseStatusCode", context.Response.StatusCode),
+                new JProperty("ResponseStatusReason", context.Response.StatusReason),
+                new JProperty("responseBody", responseBody),
                 new JProperty("urlId", (int)context.Variables["urlId"]),
                 new JProperty("Backend", (String)context.Variables["backend"]),
                 new JProperty("retrystatuscode", context.Variables.GetValueOrDefault<int>("retrystatuscode")),
