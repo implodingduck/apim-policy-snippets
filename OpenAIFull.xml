@@ -1,6 +1,27 @@
 <policies>
     <inbound>
         <base />
+        <set-variable name="urlId" value="@(new Random(context.RequestId.GetHashCode()).Next(1, 100))" />
+        <choose>
+            <when condition="@(context.Variables.GetValueOrDefault<int>("urlId") <= 75)">
+                <set-backend-service backend-id="openaitz4a0hvb-backend" />
+                <set-variable name="backend" value="openaitz4a0hvb-backend" />
+            </when>
+            <when condition="@(context.Variables.GetValueOrDefault<int>("urlId") > 75)">
+                <set-backend-service backend-id="openaitz4a0hvb-backend-ncus" />
+                <set-variable name="backend" value="openaitz4a0hvb-backend-ncus" />
+            </when>
+            <otherwise>
+                <!-- Should never happen, but you never know ;) -->
+                <return-response>
+                    <set-status code="500" reason="InternalServerError" />
+                    <set-header name="Microsoft-Azure-Api-Management-Correlation-Id" exists-action="override">
+                        <value>@{return Guid.NewGuid().ToString();}</value>
+                    </set-header>
+                    <set-body>A gateway-related error occurred while processing the request.</set-body>
+                </return-response>
+            </otherwise>
+        </choose>
         <log-to-eventhub logger-id="ehlogger" partition-id="0">@{
             var body = context.Request.Body?.As<string>(true);
             if (body != null && body.Length > 1024)
@@ -29,55 +50,32 @@
                 new JProperty("OperationMethod", context.Operation.Method),
                 new JProperty("OperationUrl", context.Operation.UrlTemplate),
                 new JProperty("ApiName", context.Api.Name),
-                new JProperty("ApiPath", context.Api.Path)
-                
+                new JProperty("ApiPath", context.Api.Path),
+                new JProperty("urlId", (int)context.Variables["urlId"]),
+                new JProperty("Backend", (String)context.Variables["backend"])
             ).ToString();
             
         }</log-to-eventhub>
-        <set-variable name="urlId" value="@(new Random(context.RequestId.GetHashCode()).Next(1, 3))" />
-        <choose>
-            <when condition="@(context.Variables.GetValueOrDefault<int>("urlId") == 1)">
-                <set-backend-service backend-id="openaitz4a0hvb-backend" />
-                <set-variable name="backend" value="openaitz4a0hvb-backend" />
-            </when>
-            <when condition="@(context.Variables.GetValueOrDefault<int>("urlId") == 2)">
-                <set-backend-service backend-id="openaitz4a0hvb-backend-ncus" />
-                <set-variable name="backend" value="openaitz4a0hvb-backend-ncus" />
-            </when>
-            <otherwise>
-                <!-- Should never happen, but you never know ;) -->
-                <return-response>
-                    <set-status code="500" reason="InternalServerError" />
-                    <set-header name="Microsoft-Azure-Api-Management-Correlation-Id" exists-action="override">
-                        <value>@{return Guid.NewGuid().ToString();}</value>
-                    </set-header>
-                    <set-body>A gateway-related error occurred while processing the request.</set-body>
-                </return-response>
-            </otherwise>
-        </choose>
+        <set-variable name="counter" value="@{return 0;}" />
     </inbound>
     <backend>
-        <retry condition="@(context.Response.StatusCode > 400)" count="1" interval="1" max-interval="10" delta="1" first-fast-retry="true">
+        <retry condition="@(context.Response.StatusCode > 400)" count="2" interval="1" max-interval="10" delta="1" first-fast-retry="false">
             <choose>
-                <when condition="@(context.Variables.GetValueOrDefault<int>("urlId") == 1 && context.Response.StatusCode > 400)">
+                <when condition="@(context.Variables.GetValueOrDefault<int>("urlId") <= 75 && context.Response.StatusCode > 400)">
                     <set-backend-service backend-id="openaitz4a0hvb-backend-ncus" />
                     <set-variable name="backend" value="openaitz4a0hvb-backend-ncus" />
+                    <set-variable name="retrystatuscode" value="@(context.Response.StatusCode)" />
                 </when>
-                <when condition="@(context.Variables.GetValueOrDefault<int>("urlId") == 2 && context.Response.StatusCode > 400)">
+                <when condition="@(context.Variables.GetValueOrDefault<int>("urlId") > 75 && context.Response.StatusCode > 400)">
                     <set-backend-service backend-id="openaitz4a0hvb-backend" />
                     <set-variable name="backend" value="openaitz4a0hvb-backend" />
+                    <set-variable name="retrystatuscode" value="@(context.Response.StatusCode)" />
                 </when>
                 <otherwise>
-                    <!-- Should never happen, but you never know ;) -->
-                    <return-response>
-                        <set-status code="500" reason="InternalServerError" />
-                        <set-header name="Microsoft-Azure-Api-Management-Correlation-Id" exists-action="override">
-                            <value>@{return Guid.NewGuid().ToString();}</value>
-                        </set-header>
-                        <set-body>A gateway-related error occurred while processing the request.</set-body>
-                    </return-response>
+                    <!-- do nothing -->
                 </otherwise>
             </choose>
+            <set-variable name="counter" value="@{return (context.Variables.GetValueOrDefault<int>("counter") + 1);}" />
             <forward-request />
         </retry>
     </backend>
@@ -118,8 +116,10 @@
                 new JProperty("ApiPath", context.Api.Path),
                 new JProperty("RequestBody", requestBody),
                 new JProperty("Duration", context.Elapsed),
-                new JProperty("Backend", (String)context.Variables["backend"])
-                
+                new JProperty("urlId", (int)context.Variables["urlId"]),
+                new JProperty("Backend", (String)context.Variables["backend"]),
+                new JProperty("retrystatuscode", context.Variables.GetValueOrDefault<int>("retrystatuscode")),
+                new JProperty("counter", context.Variables.GetValueOrDefault<int>("counter"))
             ).ToString();
             
         }</log-to-eventhub>
@@ -142,7 +142,10 @@
                 new JProperty("ApiName", context.Api.Name),
                 new JProperty("ApiPath", context.Api.Path),
                 new JProperty("Duration", context.Elapsed),
-                new JProperty("Backend", (String)context.Variables["backend"])
+                new JProperty("urlId", (int)context.Variables["urlId"]),
+                new JProperty("Backend", (String)context.Variables["backend"]),
+                new JProperty("retrystatuscode", context.Variables.GetValueOrDefault<int>("retrystatuscode")),
+                new JProperty("counter", context.Variables.GetValueOrDefault<int>("counter"))
             ).ToString();
         }</log-to-eventhub>
     </on-error>
