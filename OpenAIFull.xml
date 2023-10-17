@@ -1,0 +1,149 @@
+<policies>
+    <inbound>
+        <base />
+        <log-to-eventhub logger-id="ehlogger" partition-id="0">@{
+            var body = context.Request.Body?.As<string>(true);
+            if (body != null && body.Length > 1024)
+            {
+                body = body.Substring(0, 1024);
+            }
+
+            var headers = context.Request.Headers
+                                .Where(h => h.Key != "Authorization" && h.Key != "Ocp-Apim-Subscription-Key" && h.Key != "api-key")
+                                .Select(h => string.Format("{0}: {1}", h.Key, String.Join(", ", h.Value)))
+                                .ToArray<string>();
+            var requestIdHeader = context.Request.Headers.GetValueOrDefault("Request-Id", "");
+            return new JObject(
+                new JProperty("Type", "request"),
+                new JProperty("Headers", headers),
+                new JProperty("EventTime", DateTime.UtcNow.ToString()),
+                new JProperty("ServiceName", context.Deployment.ServiceName),
+                new JProperty("requestIdHeader", requestIdHeader),
+                new JProperty("RequestId", context.RequestId),
+                new JProperty("RequestIp", context.Request.IpAddress),
+                new JProperty("RequestMethod", context.Request.Method),
+                new JProperty("RequestPath", context.Request.Url.Path),
+                new JProperty("RequestQuery", context.Request.Url.QueryString),
+                new JProperty("RequestBody", body),
+                new JProperty("OperationName", context.Operation.Name),
+                new JProperty("OperationMethod", context.Operation.Method),
+                new JProperty("OperationUrl", context.Operation.UrlTemplate),
+                new JProperty("ApiName", context.Api.Name),
+                new JProperty("ApiPath", context.Api.Path)
+                
+            ).ToString();
+            
+        }</log-to-eventhub>
+        <set-variable name="urlId" value="@(new Random(context.RequestId.GetHashCode()).Next(1, 3))" />
+        <choose>
+            <when condition="@(context.Variables.GetValueOrDefault<int>("urlId") == 1)">
+                <set-backend-service backend-id="openaitz4a0hvb-backend" />
+                <set-variable name="backend" value="openaitz4a0hvb-backend" />
+            </when>
+            <when condition="@(context.Variables.GetValueOrDefault<int>("urlId") == 2)">
+                <set-backend-service backend-id="openaitz4a0hvb-backend-ncus" />
+                <set-variable name="backend" value="openaitz4a0hvb-backend-ncus" />
+            </when>
+            <otherwise>
+                <!-- Should never happen, but you never know ;) -->
+                <return-response>
+                    <set-status code="500" reason="InternalServerError" />
+                    <set-header name="Microsoft-Azure-Api-Management-Correlation-Id" exists-action="override">
+                        <value>@{return Guid.NewGuid().ToString();}</value>
+                    </set-header>
+                    <set-body>A gateway-related error occurred while processing the request.</set-body>
+                </return-response>
+            </otherwise>
+        </choose>
+    </inbound>
+    <backend>
+        <retry condition="@(context.Response.StatusCode > 400)" count="1" interval="1" max-interval="10" delta="1" first-fast-retry="true">
+            <choose>
+                <when condition="@(context.Variables.GetValueOrDefault<int>("urlId") == 1 && context.Response.StatusCode > 400)">
+                    <set-backend-service backend-id="openaitz4a0hvb-backend-ncus" />
+                    <set-variable name="backend" value="openaitz4a0hvb-backend-ncus" />
+                </when>
+                <when condition="@(context.Variables.GetValueOrDefault<int>("urlId") == 2 && context.Response.StatusCode > 400)">
+                    <set-backend-service backend-id="openaitz4a0hvb-backend" />
+                    <set-variable name="backend" value="openaitz4a0hvb-backend" />
+                </when>
+                <otherwise>
+                    <!-- Should never happen, but you never know ;) -->
+                    <return-response>
+                        <set-status code="500" reason="InternalServerError" />
+                        <set-header name="Microsoft-Azure-Api-Management-Correlation-Id" exists-action="override">
+                            <value>@{return Guid.NewGuid().ToString();}</value>
+                        </set-header>
+                        <set-body>A gateway-related error occurred while processing the request.</set-body>
+                    </return-response>
+                </otherwise>
+            </choose>
+            <forward-request />
+        </retry>
+    </backend>
+    <outbound>
+        <base />
+        <log-to-eventhub logger-id="ehlogger" partition-id="1">@{
+
+            var body = "";
+            var headers = context.Response.Headers
+                                            .Select(h => string.Format("{0}: {1}", h.Key, String.Join(", ", h.Value)))
+                                            .ToArray<string>();
+
+            var respContentType = context.Response.Headers.GetValueOrDefault("Content-Type", "");
+            if( respContentType.Equals("text/event-stream") ){
+                body = "streaming";
+            }else{
+                body = "not-streaming";
+                
+            }
+            var requestIdHeader = context.Request.Headers.GetValueOrDefault("Request-Id", "");
+            var requestBody = context.Request.Body?.As<string>(true);
+            return new JObject(
+                new JProperty("Type", "response"),
+                new JProperty("Headers", headers),
+                new JProperty("EventTime", DateTime.UtcNow.ToString()),
+                new JProperty("ServiceName", context.Deployment.ServiceName),
+                new JProperty("requestIdHeader", requestIdHeader),
+                new JProperty("RequestId", context.RequestId),
+                new JProperty("RequestIp", context.Request.IpAddress),
+                new JProperty("RequestMethod", context.Request.Method),
+                new JProperty("ResponseStatusCode", context.Response.StatusCode),
+                new JProperty("ResponseStatusReason", context.Response.StatusReason),
+                new JProperty("ResponseBody", body),
+                new JProperty("OperationName", context.Operation.Name),
+                new JProperty("OperationMethod", context.Operation.Method),
+                new JProperty("OperationUrl", context.Operation.UrlTemplate),
+                new JProperty("ApiName", context.Api.Name),
+                new JProperty("ApiPath", context.Api.Path),
+                new JProperty("RequestBody", requestBody),
+                new JProperty("Duration", context.Elapsed),
+                new JProperty("Backend", (String)context.Variables["backend"])
+                
+            ).ToString();
+            
+        }</log-to-eventhub>
+    </outbound>
+    <on-error>
+        <base />
+        <log-to-eventhub logger-id="ehlogger" partition-id="1">@{
+            var requestIdHeader = context.Request.Headers.GetValueOrDefault("Request-Id", "");
+            return new JObject(
+                new JProperty("Type", "error"),
+                new JProperty("EventTime", DateTime.UtcNow.ToString()),
+                new JProperty("ServiceName", context.Deployment.ServiceName),
+                new JProperty("requestIdHeader", requestIdHeader),
+                new JProperty("RequestId", context.RequestId),
+                new JProperty("RequestIp", context.Request.IpAddress),
+                new JProperty("LastErrorMessage", context.LastError.Message),
+                new JProperty("OperationName", context.Operation.Name),
+                new JProperty("OperationMethod", context.Operation.Method),
+                new JProperty("OperationUrl", context.Operation.UrlTemplate),
+                new JProperty("ApiName", context.Api.Name),
+                new JProperty("ApiPath", context.Api.Path),
+                new JProperty("Duration", context.Elapsed),
+                new JProperty("Backend", (String)context.Variables["backend"])
+            ).ToString();
+        }</log-to-eventhub>
+    </on-error>
+</policies>
