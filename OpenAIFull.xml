@@ -52,6 +52,7 @@
                 new JProperty("OperationUrl", context.Operation.UrlTemplate),
                 new JProperty("ApiName", context.Api.Name),
                 new JProperty("ApiPath", context.Api.Path),
+                new JProperty("Subscriber", context.Subscription.Id),
                 new JProperty("urlId", (int)context.Variables["urlId"]),
                 new JProperty("Backend", (String)context.Variables["backend"])
             ).ToString();
@@ -118,6 +119,7 @@
                 new JProperty("OperationUrl", context.Operation.UrlTemplate),
                 new JProperty("ApiName", context.Api.Name),
                 new JProperty("ApiPath", context.Api.Path),
+                new JProperty("Subscriber", context.Subscription.Id),
                 new JProperty("RequestBody", requestBody),
                 new JProperty("Duration", context.Elapsed),
                 new JProperty("urlId", (int)context.Variables["urlId"]),
@@ -146,6 +148,7 @@
                 new JProperty("OperationUrl", context.Operation.UrlTemplate),
                 new JProperty("ApiName", context.Api.Name),
                 new JProperty("ApiPath", context.Api.Path),
+                new JProperty("Subscriber", context.Subscription.Id),
                 new JProperty("Duration", context.Elapsed),
                 new JProperty("ResponseStatusCode", context.Response.StatusCode),
                 new JProperty("ResponseStatusReason", context.Response.StatusReason),
