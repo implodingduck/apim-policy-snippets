@@ -1,30 +1,9 @@
 <policies>
     <inbound>
         <base />
-        <set-variable name="urlId" value="@(new Random(context.RequestId.GetHashCode()).Next(1, 100))" />
-        <set-variable name="weight" value="@{ return 100; }" />
-        <choose>
-            <when condition="@(context.Variables.GetValueOrDefault<int>("urlId") <= context.Variables.GetValueOrDefault<int>("weight"))">
-                <set-backend-service backend-id="openai-log-helper-proxy" />
-                <set-variable name="backend" value="openai-log-helper-proxy" />
-            </when>
-            <when condition="@(context.Variables.GetValueOrDefault<int>("urlId") > context.Variables.GetValueOrDefault<int>("weight"))">
-                <set-backend-service backend-id="openaitz4a0hvb-backend-ncus" />
-                <set-variable name="backend" value="openaitz4a0hvb-backend-ncus" />
-            </when>
-            <otherwise>
-                <!-- Should never happen, but you never know ;) -->
-                <return-response>
-                    <set-status code="500" reason="InternalServerError" />
-                    <set-header name="Microsoft-Azure-Api-Management-Correlation-Id" exists-action="override">
-                        <value>@{return Guid.NewGuid().ToString();}</value>
-                    </set-header>
-                    <set-body>A gateway-related error occurred while processing the request.</set-body>
-                </return-response>
-            </otherwise>
-        </choose>
+        <set-backend-service backend-id="openaitz4a0hvb-pool" />
         <set-variable name="requestBody" value="@(context.Request.Body.As<string>(preserveContent: true))" />
-        <log-to-eventhub logger-id="ehlogger" partition-id="0">@{
+        <!--<log-to-eventhub logger-id="ehlogger" partition-id="0">@{
             var body = context.Request.Body?.As<string>(true);
             if (body != null && body.Length > 1024)
             {
@@ -53,35 +32,38 @@
                 new JProperty("OperationUrl", context.Operation.UrlTemplate),
                 new JProperty("ApiName", context.Api.Name),
                 new JProperty("ApiPath", context.Api.Path),
-                new JProperty("Subscriber", context.Subscription.Id),
-                new JProperty("urlId", (int)context.Variables["urlId"]),
-                new JProperty("Backend", (String)context.Variables["backend"])
+                new JProperty("Subscriber", context.Subscription.Id)
             ).ToString();
             
-        }</log-to-eventhub>
+        }</log-to-eventhub>-->
         <set-variable name="counter" value="@{return 0;}" />
     </inbound>
     <backend>
-        <retry condition="@(context.Response.StatusCode > 400)" count="1" interval="1" max-interval="45" delta="1" first-fast-retry="false">
+        <retry condition="@(context.Response.StatusCode > 400)" count="3" interval="1" max-interval="45" delta="1" first-fast-retry="false">
             <choose>
-                <when condition="@(context.Variables.GetValueOrDefault<int>("urlId") <= context.Variables.GetValueOrDefault<int>("weight") && context.Response.StatusCode > 400)">
-                    <set-backend-service backend-id="openaitz4a0hvb-backend-ncus" />
-                    <set-variable name="backend" value="openaitz4a0hvb-backend-ncus" />
-                    <set-variable name="retrystatuscode" value="@(context.Response.StatusCode)" />
-                    <set-body>@((String)context.Variables["requestBody"])</set-body>
-                </when>
-                <when condition="@(context.Variables.GetValueOrDefault<int>("urlId") > context.Variables.GetValueOrDefault<int>("weight") && context.Response.StatusCode > 400)">
-                    <set-backend-service backend-id="openai-log-helper-proxy" />
-                    <set-variable name="backend" value="openai-log-helper-proxy" />
-                    <set-variable name="retrystatuscode" value="@(context.Response.StatusCode)" />
-                    <set-body>@((String)context.Variables["requestBody"])</set-body>
+                <when condition="@(context.Response.StatusCode > 400)">
+                    <log-to-eventhub logger-id="ehlogger" partition-id="0">@{
+                        var headers = context.Response.Headers
+                                                    .Select(h => string.Format("{0}: {1}", h.Key, String.Join(", ", h.Value)))
+                                                    .ToArray<string>();
+
+                        return new JObject(
+                            new JProperty("Type", "retry"),
+                            new JProperty("Headers", headers),
+                            new JProperty("ResponseStatusCode", context.Response.StatusCode),
+                            new JProperty("ResponseStatusReason", context.Response.StatusReason),
+                            new JProperty("EventTime", DateTime.UtcNow.ToString()),
+                            new JProperty("counter", context.Variables.GetValueOrDefault<int>("counter"))
+                        ).ToString();
+                    }</log-to-eventhub>
                 </when>
                 <otherwise>
                     <!-- do nothing -->
                 </otherwise>
             </choose>
             <set-variable name="counter" value="@{return (context.Variables.GetValueOrDefault<int>("counter") + 1);}" />
-            <forward-request />
+            <set-body>@((String)context.Variables["requestBody"])</set-body>
+            <forward-request buffer-response="false" />
         </retry>
     </backend>
     <outbound>
@@ -101,7 +83,7 @@
                 
             }
             var requestIdHeader = context.Request.Headers.GetValueOrDefault("Request-Id", "");
-            var requestBody = context.Request.Body?.As<string>(true);
+            var requestBody = "";
 
             return new JObject(
                 new JProperty("Type", "response"),
@@ -123,9 +105,6 @@
                 new JProperty("Subscriber", context.Subscription.Id),
                 new JProperty("RequestBody", requestBody),
                 new JProperty("Duration", context.Elapsed),
-                new JProperty("urlId", (int)context.Variables["urlId"]),
-                new JProperty("Backend", (String)context.Variables["backend"]),
-                new JProperty("retrystatuscode", context.Variables.GetValueOrDefault<int>("retrystatuscode")),
                 new JProperty("counter", context.Variables.GetValueOrDefault<int>("counter"))
             ).ToString();
             
@@ -144,20 +123,16 @@
                 new JProperty("RequestId", context.RequestId),
                 new JProperty("RequestIp", context.Request.IpAddress),
                 new JProperty("LastErrorMessage", context.LastError.Message),
-                new JProperty("OperationName", context.Operation.Name),
-                new JProperty("OperationMethod", context.Operation.Method),
-                new JProperty("OperationUrl", context.Operation.UrlTemplate),
+                new JProperty("OperationName", context.Operation?.Name),
+                new JProperty("OperationMethod", context.Operation?.Method),
+                new JProperty("OperationUrl", context.Operation?.UrlTemplate),
                 new JProperty("ApiName", context.Api.Name),
                 new JProperty("ApiPath", context.Api.Path),
                 new JProperty("Subscriber", context.Subscription.Id),
                 new JProperty("Duration", context.Elapsed),
-                new JProperty("ResponseStatusCode", context.Response.StatusCode),
-                new JProperty("ResponseStatusReason", context.Response.StatusReason),
-                new JProperty("responseBody", responseBody),
-                new JProperty("urlId", (int)context.Variables["urlId"]),
-                new JProperty("Backend", (String)context.Variables["backend"]),
-                new JProperty("retrystatuscode", context.Variables.GetValueOrDefault<int>("retrystatuscode")),
-                new JProperty("counter", context.Variables.GetValueOrDefault<int>("counter"))
+                new JProperty("ResponseStatusCode", context.Response?.StatusCode),
+                new JProperty("ResponseStatusReason", context.Response?.StatusReason),
+                new JProperty("responseBody", responseBody)
             ).ToString();
         }</log-to-eventhub>
     </on-error>
