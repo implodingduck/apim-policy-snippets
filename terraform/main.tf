@@ -26,7 +26,7 @@ resource "azurerm_api_management_api" "api" {
 
   import {
     content_format = "openapi+json-link"
-    content_value  = "https://raw.githubusercontent.com/inference.json"
+    content_value  = "https://raw.githubusercontent.com/implodingduck/apim-policy-snippets/refs/heads/main/openapi/inference.json"
   }
  
 }
@@ -44,7 +44,7 @@ resource azurerm_api_management_api_policy "policy" {
         <set-header name="Authorization" exists-action="override">
             <value>@("Bearer " + (string)context.Variables["msi-access-token"])</value>
         </set-header>
-        <set-backend-service backend-id="backend-pool" />
+        <set-backend-service backend-id="openaibackendpool" />
         <set-variable name="counter" value="@{return 0;}" />
     </inbound>
     <backend>
