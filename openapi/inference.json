@@ -7,7 +7,7 @@
   },
   "servers": [
     {
-      "url": "tf/openai",
+      "url": "tf/openai"
     }
   ],
   "security": [
