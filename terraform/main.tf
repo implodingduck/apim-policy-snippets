@@ -15,18 +15,21 @@ provider "azapi" {
   subscription_id = var.subscription_id
 }
 
+data "local_file" "openapi" {
+  filename = "../openapi/inference.json"
+}
+
 resource "azurerm_api_management_api" "api" {
   api_management_name = var.apim_name
   resource_group_name = var.resource_group_name
   revision           = 1
   name               = "tfm-OpenAI"
   display_name       = "Terraform Managed OpenAI"
-  path               = "tf/openai"
+  path               = "tfm/openai"
   protocols          = ["https"]
-
   import {
-    content_format = "openapi+json-link"
-    content_value  = "https://raw.githubusercontent.com/implodingduck/apim-policy-snippets/refs/heads/main/openapi/inference.json"
+    content_format = "openapi"
+    content_value  = data.local_file.openapi.content
   }
  
 }
