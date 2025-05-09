@@ -1,6 +1,7 @@
 {
   "openapi": "3.0.0",
   "info": {
+    "title": "Yet Another Azure OpenAI Service API",
     "description": "Azure OpenAI APIs for completions and search",
     "version": "2024-10-21"
   },
