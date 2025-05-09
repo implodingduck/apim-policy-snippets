@@ -7,12 +7,7 @@
   },
   "servers": [
     {
-      "url": "https://your-resource-name.openai.azure.com/tf/openai",
-      "variables": {
-        "endpoint": {
-          "default": "your-resource-name.openai.azure.com"
-        }
-      }
+      "url": "tf/openai",
     }
   ],
   "security": [
