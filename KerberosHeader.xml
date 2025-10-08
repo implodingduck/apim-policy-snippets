@@ -1,0 +1,46 @@
+<!--
+    - Policies are applied in the order they appear.
+    - Position <base/> inside a section to inherit policies from the outer scope.
+    - Comments within policies are not preserved.
+-->
+<!-- Add policies as children to the <inbound>, <outbound>, <backend>, and <on-error> elements -->
+<policies>
+    <!-- Throttle, authorize, validate, cache, or transform the requests -->
+    <inbound>
+        <base />
+        <choose>
+            <when condition="@(context.Request.Headers.GetValueOrDefault("Authorization", "") == "")">
+                <return-response>
+                    <set-status code="401" />
+                    <set-header name="WWW-Authenticate" exists-action="override">
+                        <value>Negotiate</value>
+                    </set-header>
+                </return-response>
+            </when>
+            <otherwise>
+                <return-response>
+                    <set-status code="200" reason="OK" />
+                    <set-body>@{
+                        var headers = context.Request.Headers
+                                        .Where(h => h.Key != "A" && h.Key != "B" && h.Key != "C")
+                                        .Select(h => string.Format("{0}: {1}", h.Key, String.Join(", ", h.Value)))
+                                        .ToArray<string>(); 
+                        return String.Join(" ||| ", headers);
+                    }</set-body>
+                </return-response>
+            </otherwise>
+        </choose>
+    </inbound>
+    <!-- Control if and how the requests are forwarded to services  -->
+    <backend>
+        <base />
+    </backend>
+    <!-- Customize the responses -->
+    <outbound>
+        <base />
+    </outbound>
+    <!-- Handle exceptions and customize error responses  -->
+    <on-error>
+        <base />
+    </on-error>
+</policies>
