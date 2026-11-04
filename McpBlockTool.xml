@@ -1,0 +1,48 @@
+<policies>
+ <inbound>
+  <base />
+  <set-variable name="mcpBlockedTools" value="["create_email_draft", "delete_email", "send_email"]" />
+  <set-variable name="mcpTool" value="@{
+   if (context.Request.Method != "POST" || context.Request.Body == null) {
+    return "";
+   }
+   JToken body;
+   try {
+    body = context.Request.Body.As<JToken>(preserveContent: true);
+   } catch (Newtonsoft.Json.JsonReaderException) {
+    context.Trace("MCP tool logging skipped: malformed JSON; request left unchanged.");
+    return "";
+   }
+   var request = body as JObject;
+   var parameters = request?["params"] as JObject;
+   if (request?["method"]?.Type != JTokenType.String ||
+    (string)request["method"] != "tools/call" ||
+    parameters?["name"]?.Type != JTokenType.String) {
+    return "";
+   }
+   return (string)parameters["name"];
+  }" />
+  <choose>
+   <when condition="@(JArray.Parse((string)context.Variables["mcpBlockedTools"]).Any(tool => (string)tool == (string)context.Variables["mcpTool"]))">
+    <return-response>
+     <set-status code="403" reason="Forbidden" />
+    </return-response>
+   </when>
+  </choose>
+ </inbound>
+ <backend>
+  <base />
+ </backend>
+ <outbound>
+  <base />
+  <set-header name="X-LastErrorMessage" exists-action="override">
+   <value>@( context.LastError?.Message )</value>
+  </set-header>
+ </outbound>
+ <on-error>
+  <base />
+  <set-header name="X-LastErrorMessage" exists-action="override">
+   <value>@( context.LastError?.Message )</value>
+  </set-header>
+ </on-error>
+</policies>
