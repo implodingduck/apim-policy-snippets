@@ -1,7 +1,7 @@
 <policies>
  <inbound>
   <base />
-  <set-variable name="mcpBlockedTools" value="["create_email_draft", "delete_email", "send_email"]" />
+  <set-variable name="mcpBlockedTools" value="[&quot;create_email_draft&quot;, &quot;delete_email&quot;, &quot;send_email&quot;]" />
   <set-variable name="mcpTool" value="@{
    if (context.Request.Method != "POST" || context.Request.Body == null) {
     return "";
